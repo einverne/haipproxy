@@ -10,7 +10,7 @@ RUN apt update \
     && cp /etc/squid/squid.conf /etc/squid/squid.conf.backup \
     && apt install python3 python3-pip -yq \
     && which python3|xargs -i ln -s {} /usr/bin/python \
-    && which pip3|xargs -i ln -s {} /usr/bin/pip \
+    && which pip3|xargs -i ln -s {} /usr/bin/pip
 COPY . /haipproxy
 WORKDIR /haipproxy
 RUN pip install --upgrade pip && pip install -i https://pypi.douban.com/simple/ -r requirements.txt
