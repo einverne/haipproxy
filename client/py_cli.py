@@ -1,13 +1,17 @@
 """
 This module privodes core algrithm to pick up proxy ip resources.
 """
+import time
+import threading
+
 from utils import get_redis_conn
 from config.settings import (
     DATA_ALL, LOWEST_TOTAL_PROXIES)
 from .core import IPFetcherMixin
 
-
 __all__ = ['ProxyFetcher']
+
+lock = threading.RLock()
 
 
 class Strategy:
@@ -17,6 +21,20 @@ class Strategy:
         return self.strategy == strategy
 
     def get_proxies_by_stragery(self, pool):
+        """
+        :param pool: pool is a list, which is mutable
+        :return:
+        """
+        raise NotImplementedError
+
+    def process_feedback(self, pool, res, proxy, **kwargs):
+        """
+        :param pool: ProxyFetcher's pool
+        :param res: success or failure
+        :param proxy: proxy ip
+        :param kwargs: response time or expected response time
+        :return: None
+        """
         raise NotImplementedError
 
 
@@ -28,9 +46,18 @@ class RobinStrategy(Strategy):
     def get_proxies_by_stragery(self, pool):
         if not pool:
             return None
-        proxy = pool[0]
-        pool[0], pool[-1] = pool[-1], pool[0]
+
+        proxy = pool.pop(0)
+        pool.append(proxy)
         return proxy
+
+    def process_feedback(self, pool, res, proxy, **kwargs):
+        if res == 'failure':
+            if pool[-1] == proxy:
+                with lock:
+                    if pool[-1] == proxy:
+                        pool.pop()
+        return
 
 
 class GreedyStrategy(Strategy):
@@ -42,6 +69,19 @@ class GreedyStrategy(Strategy):
             return None
         return pool[0]
 
+    def process_feedback(self, pool, res, proxy, **kwargs):
+        if res == 'failure':
+            if pool[0] == proxy:
+                with lock:
+                    if pool[0] == proxy:
+                        pool.pop(0)
+            return
+        expected_time = kwargs.get('expected')
+        real_time = kwargs.get('real')
+        if expected_time * 1000 < real_time:
+            pool.pop(0)
+            pool.append(proxy)
+
 
 class ProxyFetcher(IPFetcherMixin):
     def __init__(self, usage, strategy='robin', fast_response=5, redis_args=None):
@@ -52,8 +92,10 @@ class ProxyFetcher(IPFetcherMixin):
         one of ['robin', 'greedy']
         :param fast_response: if you use greedy strategy, if will be needed to
         decide whether a proxy ip should continue to be used
-        :param redis_args: redis connetion args, it's a dict, the keys include host, port, db and password
+        :param redis_args: redis connetion args, it's a dict, the keys
+        include host, port, db and password
         """
+        # if there are multi parent classes, super is only used for the first parent according to MRO
         super().__init__(usage)
         self.strategy = strategy
         # pool is a queue, which is FIFO
@@ -64,13 +106,15 @@ class ProxyFetcher(IPFetcherMixin):
             self.conn = get_redis_conn(**redis_args)
         else:
             self.conn = get_redis_conn()
+        t = threading.Thread(target=self._refresh_periodically)
+        t.setDaemon(True)
+        t.start()
 
     def get_proxy(self):
         """
         get one available proxy from redis, if not any, None is returned
         :return:
         """
-        # todo consider aysnc or multi thread
         proxy = None
         self.refresh()
         for handler in self.handlers:
@@ -79,36 +123,41 @@ class ProxyFetcher(IPFetcherMixin):
         return proxy
 
     def get_proxies(self):
+        # the older proxies will not be droped
         proxies = self.get_available_proxies(self.conn)
         # client_logger.info('{} proxies have been fetched'.format(len(proxies)))
         print('{} proxies have been fetched'.format(len(proxies)))
         self.pool.extend(proxies)
         return self.pool
 
-    def proxy_feedback(self, res, response_time=None):
+    def proxy_feedback(self, res, proxy, response_time=None):
         """
         client should give feedbacks after executing get_proxy()
-        :param res: one value of ['success', 'failure']
+        :param res: value of 'success' or 'failure'
+        :param proxy: proxy ip
         :param response_time: the response time using current proxy ip
         """
-        if res == 'failure':
-            self.delete_proxy(self.pool[0])
-            return
-
-        # prevent from using proxy with slow speed always
-        if self.strategy == 'greedy' and self.fast_response*1000 < response_time:
-            self.pool[0], self.pool[-1] = self.pool[-1], self.pool[0]
+        for handler in self.handlers:
+            if handler.strategy == self.strategy:
+                handler.process_feedback(self.pool, res,
+                                         proxy, real=response_time,
+                                         expected=self.fast_response)
 
     def refresh(self):
         if len(self.pool) < LOWEST_TOTAL_PROXIES:
             self.get_proxies()
 
     def delete_proxy(self, proxy):
-        # it's not thread safe
-        self.pool.pop(0)
         pipe = self.conn.pipeline(True)
         pipe.srem(DATA_ALL, proxy)
         pipe.zrem(self.score_queue, proxy)
         pipe.zrem(self.speed_queue, proxy)
         pipe.zrem(self.ttl_queue, proxy)
         pipe.execute()
+
+    def _refresh_periodically(self):
+        """refresh self.pool periodically.Check 10 times in a second"""
+        while True:
+            if len(self.pool) < int(2 * LOWEST_TOTAL_PROXIES):
+                self.get_proxies()
+            time.sleep(0.2)

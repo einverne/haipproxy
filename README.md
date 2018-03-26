@@ -14,6 +14,8 @@
 
 # Quick start
 
+注意，代码请在[release](https://github.com/SpiderClub/haipproxy/releases)列表中下载，**master**分支的代码不保证能稳定运行
+
 ## 单机部署
 
 ### 服务端
@@ -41,7 +43,7 @@ from client.py_cli import ProxyFetcher
 args = dict(host='127.0.0.1', port=6379, password='123456', db=0)
 ＃　这里`zhihu`的意思是，去和`zhihu`相关的代理ip校验队列中获取ip
 ＃　这么做的原因是同一个代理IP对不同网站代理效果不同
-fetcher = ProxyFetcher('zhihu', strategy='greedy', length=5, redis_args=args)
+fetcher = ProxyFetcher('zhihu', strategy='greedy', redis_args=args)
 # 获取一个可用代理
 print(fetcher.get_proxy())
 # 获取可用代理列表
@@ -54,7 +56,7 @@ print(fetcher.get_proxies()) # or print(fetcher.pool)
 - 安装squid，备份squid的配置文件并且启动squid，以ubuntu为例
   > sudo apt-get install squid
 
-  > sudo sed -i 's/http_access deny all/http_access allow all/g'
+  > sudo sed -i 's/http_access deny all/http_access allow all/g' /etc/squid/squid.conf
 
   > sudo cp /etc/squid/squid.conf /etc/squid/squid.conf.backup
 
