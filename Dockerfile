@@ -5,9 +5,9 @@ LABEL maintainer="ResolveWang <resolvewang@foxmail.com>"
 ENV LC_ALL C.UTF-8
 ENV LANG C.UTF-8
 RUN apt update \
-    && apt install squid -yq \
+    && apt install squid python3 python3-pip -yq \
     && sed -i 's/http_access deny all/http_access allow all/g' /etc/squid/squid.conf \
-    && apt install python3 python3-pip -yq \
+    && cp /etc/squid/squid.conf /etc/squid/squid.conf.backup \
     && which python3|xargs -i ln -s {} /usr/bin/python \
     && which pip3|xargs -i ln -s {} /usr/bin/pip
 COPY . /haipproxy

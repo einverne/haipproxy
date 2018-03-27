@@ -1,4 +1,5 @@
 这篇文章的目的是阐述[haipproxy](https://github.com/ResolveWang/haipproxy)的主要架构和流程。该项目关键部分是
+
 - 基于Scrapy和Redis的分布式爬虫，用作IP抓取和校验，对应于项目的[crawler](https://github.com/ResolveWang/haipproxy/tree/master/crawler)
 - 基于Redis实现的分布式任务调度工具，对应于项目的[scheduler](https://github.com/ResolveWang/haipproxy/blob/master/scheduler)和[redis_util.py](https://github.com/ResolveWang/haipproxy/blob/master/utils/redis_util.py)
 
